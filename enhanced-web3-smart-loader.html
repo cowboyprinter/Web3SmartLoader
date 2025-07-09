@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enhanced Web3 Smart Loader with HTTPS Fallback</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .container {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 8px 32px rgba(31, 38, 135, 0.37);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+        }
+        .image-container {
+            text-align: center;
+            margin: 20px 0;
+        }
+        .smart-image {
+            max-width: 100%;
+            height: auto;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+            transition: transform 0.3s ease;
+        }
+        .smart-image:hover {
+            transform: scale(1.05);
+        }
+        .status {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 5px;
+            background: rgba(255, 255, 255, 0.1);
+        }
+        .web3-status {
+            color: #4ade80;
+        }
+        .https-status {
+            color: #fbbf24;
+        }
+        .error-status {
+            color: #f87171;
+        }
+        .retry-status {
+            color: #60a5fa;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Enhanced Web3 Smart Loader</h1>
+        <p>This system tries Web3 CDNs first, falls back to HTTPS if needed, then continues trying Web3 CDNs in the background.</p>
+        
+        <div class="image-container">
+            <img id="atlas-image" class="smart-image" alt="The Atlas" />
+            <div id="atlas-status" class="status">Loading...</div>
+        </div>
+
+        <div class="image-container">
+            <img id="sample-image" class="smart-image" alt="Sample Image" />
+            <div id="sample-status" class="status">Loading...</div>
+        </div>
+    </div>
+
+    <script>
+        // Enhanced Smart Loader Configuration
+        const LOADER_CONFIG = {
+            // Web3 CDNs (IPFS gateways) - tried first and retried in background
+            web3Gateways: [
+                "https://ipfs.io/ipfs/",
+                "https://gateway.pinata.cloud/ipfs/",
+                "https://dweb.link/ipfs/",
+                "https://cloudflare-ipfs.com/ipfs/",
+                "https://gateway.ipfs.io/ipfs/"
+            ],
+            
+            // HTTPS fallback sources - reliable but centralized
+            httpsFallbacks: [
+                "https://via.placeholder.com/400x300/667eea/ffffff?text=",
+                "https://picsum.photos/400/300?random=",
+                "https://source.unsplash.com/400x300/?abstract&sig="
+            ],
+            
+            // Retry configuration
+            retryConfig: {
+                maxRetries: 3,
+                retryDelay: 5000, // 5 seconds
+                maxRetryTime: 300000 // 5 minutes
+            }
+        };
+
+        class EnhancedSmartLoader {
+            constructor(imageElement, statusElement, cid, fallbackId = null) {
+                this.imageElement = imageElement;
+                this.statusElement = statusElement;
+                this.cid = cid;
+                this.fallbackId = fallbackId;
+                this.currentSource = null;
+                this.isWeb3Loaded = false;
+                this.retryCount = 0;
+                this.retryTimer = null;
+                this.startTime = Date.now();
+            }
+
+            updateStatus(message, type = 'info') {
+                this.statusElement.innerHTML = message;
+                this.statusElement.className = `status ${type}-status`;
+            }
+
+            async loadFromWeb3() {
+                this.updateStatus('Trying Web3 CDNs...', 'web3');
+                
+                for (const gateway of LOADER_CONFIG.web3Gateways) {
+                    try {
+                        const url = `${gateway}${this.cid}`;
+                        await this.tryLoadImage(url);
+                        this.currentSource = 'web3';
+                        this.isWeb3Loaded = true;
+                        this.updateStatus(`✅ Loaded from Web3 CDN: ${gateway}`, 'web3');
+                        this.stopRetrying();
+                        return true;
+                    } catch (error) {
+                        console.warn(`Web3 gateway failed: ${gateway}`, error);
+                    }
+                }
+                return false;
+            }
+
+            async loadFromHttps() {
+                this.updateStatus('Falling back to HTTPS sources...', 'https');
+                
+                for (let i = 0; i < LOADER_CONFIG.httpsFallbacks.length; i++) {
+                    try {
+                        const fallback = LOADER_CONFIG.httpsFallbacks[i];
+                        const fallbackParam = this.fallbackId || this.cid.substring(0, 8);
+                        const url = `${fallback}${fallbackParam}`;
+                        
+                        await this.tryLoadImage(url);
+                        this.currentSource = 'https';
+                        this.updateStatus(`⚠️ Loaded from HTTPS fallback (${i + 1})`, 'https');
+                        this.startBackgroundRetry();
+                        return true;
+                    } catch (error) {
+                        console.warn(`HTTPS fallback failed: ${LOADER_CONFIG.httpsFallbacks[i]}`, error);
+                    }
+                }
+                return false;
+            }
+
+            async tryLoadImage(url) {
+                return new Promise((resolve, reject) => {
+                    const testImage = new Image();
+                    testImage.onload = () => {
+                        this.imageElement.src = url;
+                        resolve();
+                    };
+                    testImage.onerror = () => {
+                        reject(new Error(`Failed to load: ${url}`));
+                    };
+                    testImage.src = url;
+                });
+            }
+
+            startBackgroundRetry() {
+                if (this.isWeb3Loaded || this.retryCount >= LOADER_CONFIG.retryConfig.maxRetries) {
+                    return;
+                }
+
+                // Check if we've exceeded the maximum retry time
+                if (Date.now() - this.startTime > LOADER_CONFIG.retryConfig.maxRetryTime) {
+                    this.updateStatus('⏰ Stopped retrying Web3 CDNs (timeout)', 'error');
+                    return;
+                }
+
+                this.retryTimer = setTimeout(async () => {
+                    this.retryCount++;
+                    this.updateStatus(`🔄 Retrying Web3 CDNs (attempt ${this.retryCount})...`, 'retry');
+                    
+                    const success = await this.loadFromWeb3();
+                    if (success) {
+                        this.updateStatus(`✅ Successfully upgraded to Web3 CDN!`, 'web3');
+                    } else {
+                        this.updateStatus(`⚠️ Using HTTPS fallback (Web3 retry ${this.retryCount} failed)`, 'https');
+                        this.startBackgroundRetry(); // Continue retrying
+                    }
+                }, LOADER_CONFIG.retryConfig.retryDelay);
+            }
+
+            stopRetrying() {
+                if (this.retryTimer) {
+                    clearTimeout(this.retryTimer);
+                    this.retryTimer = null;
+                }
+            }
+
+            async load() {
+                try {
+                    // First, try Web3 CDNs
+                    const web3Success = await this.loadFromWeb3();
+                    
+                    if (!web3Success) {
+                        // If Web3 fails, try HTTPS fallbacks
+                        const httpsSuccess = await this.loadFromHttps();
+                        
+                        if (!httpsSuccess) {
+                            this.updateStatus('❌ All sources failed to load', 'error');
+                            this.imageElement.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZGRkIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCwgc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxOCIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPkZhaWxlZCB0byBMb2FkPC90ZXh0Pjwvc3ZnPg==';
+                        }
+                    }
+                } catch (error) {
+                    console.error('Loader error:', error);
+                    this.updateStatus('❌ Unexpected error occurred', 'error');
+                }
+            }
+
+            // Cleanup method
+            destroy() {
+                this.stopRetrying();
+            }
+        }
+
+        // Initialize loaders when DOM is ready
+        document.addEventListener('DOMContentLoaded', () => {
+            // Example 1: Load from IPFS with CID
+            const atlasImage = document.getElementById('atlas-image');
+            const atlasStatus = document.getElementById('atlas-status');
+            const atlasCID = 'bafkreia5mxpfm27dbvxfuep4oklo2zslyfulroje45jjievnlmso65lsqm';
+            
+            if (atlasImage && atlasStatus) {
+                const atlasLoader = new EnhancedSmartLoader(atlasImage, atlasStatus, atlasCID, 'Atlas');
+                atlasLoader.load();
+            }
+
+            // Example 2: Another image with different CID
+            const sampleImage = document.getElementById('sample-image');
+            const sampleStatus = document.getElementById('sample-status');
+            const sampleCID = 'QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG';
+            
+            if (sampleImage && sampleStatus) {
+                const sampleLoader = new EnhancedSmartLoader(sampleImage, sampleStatus, sampleCID, 'Sample');
+                sampleLoader.load();
+            }
+        });
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            // Clean up any running timers
+            document.querySelectorAll('.smart-image').forEach(img => {
+                if (img.loader) {
+                    img.loader.destroy();
+                }
+            });
+        });
+    </script>
+</body>
+</html>
